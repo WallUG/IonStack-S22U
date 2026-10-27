@@ -1,0 +1,10 @@
+{
+  "model": "SM-S908U1",
+  "build": "S908U1UEU8GYJ1",
+  "codename": "b0q",
+  "kernel_version": "5.10.236",
+  "soc_family": "qcom",
+  "fingerprint": "samsung/b0quew/b0q:16/BP2A.250605.031.A3/S908U1UEU8GYJ1:user/release-keys",
+  "sibling": "S901U1UESAGZH3",
+  "generated_by": "target_generator/make-target.sh"
+}

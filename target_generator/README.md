@@ -75,6 +75,48 @@ gcc -O2 kallsyms.c -o kallsyms && ./kallsyms Image && ./extract-ikconfig Image >
 
 ---
 
+## 🚀 Automated target generation (`make-target.sh`)
+
+`make-target.sh` performs the whole flow — firmware extraction, symbol and
+config extraction, offset generation, sibling selection, installation and
+compilation — without editing a single offset by hand:
+
+```bash
+# from the SamFW firmware package (or a boot.img / boot.img.lz4 / raw Image)
+./make-target.sh SM-S908U1 S908U1UEU8GYJ1 --fw firmware.zip
+
+# only generate the target, do not touch src/targets/ and do not compile
+./make-target.sh SM-S908U1 S908U1UEU8GYJ1 --fw firmware.zip --no-install --no-build
+```
+
+Pipeline:
+
+| Step | Tool |
+| :--- | :--- |
+| `boot.img.lz4` out of the firmware package | `unzip` + `tar` (streamed, nothing else is written) |
+| `boot.img` | `lz4` |
+| kernel Image | `magiskboot unpack` (auto-downloaded from the Magisk APK if missing) |
+| symbols / config | `kallsyms`, `extract-ikconfig` |
+| offsets | `generate_target.py` (kallsyms + capstone) |
+| sibling selection | scored on kernel version, device series and SoC family |
+| compile | `make PROJECT=<BUILD> clean preload root-helper` |
+
+The kernel version is read from the kernel banner and the SoC family from the
+kernel config (`CONFIG_ARCH_QCOM` / `CONFIG_ARCH_EXYNOS`). The build
+fingerprint is taken from the connected device over `adb`, or from the CSC
+package inside the firmware zip.
+
+Options: `--sibling <TARGET>`, `--exp32` / `--exp64`, `--magiskboot <path>`,
+`--out <dir>`, `--no-install`, `--no-build`, `--push`, `--run`, `--force`,
+`--dry-run`.
+
+> [!NOTE]
+> The 64-bit embedded stage (`exp64/`) is only needed on kernels where
+> `__arm64_compat_sys_setsockopt` is an `ENOSYS` stub. It is inherited from
+> the chosen sibling; use `--exp64` / `--exp32` to override.
+
+---
+
 ## 📁 Files Reference
 
 - `generate_target.py` — Main script that resolves kernel offsets and patches the header file.

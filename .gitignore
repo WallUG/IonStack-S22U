@@ -15,6 +15,8 @@ __pycache__/
 target_generator/kallsyms
 target_generator/kallsyms.txt
 target_generator/config.txt
+/kallsyms.txt
+/config.txt
 
 # Test targets / QEMU test environments
 tests-targets/

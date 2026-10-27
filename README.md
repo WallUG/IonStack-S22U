@@ -152,6 +152,52 @@ embedded `exp32` blob → push → pre-flight → run → root check):
 REBOOT_BEFORE_RUN=1 ./document/run-S908U1UEU8GYJ1.sh   # clean-slab reboot first
 ```
 
+## Generating a target for an unsupported build
+
+`target_generator/make-target.sh` automates the whole porting flow for a
+firmware build that has no pre-configured profile: it takes the firmware
+package and produces a compiled, ready-to-use target without a single
+hand-edited offset.
+
+```sh
+# from the SamFW firmware package (zip, boot.img, boot.img.lz4 or raw Image)
+./target_generator/make-target.sh SM-S908U1 S908U1UEU8GYJ1 \
+        --fw SAMFW.COM_SM-S908U1_XAA_S908U1UEU8GYJ1_fac.zip
+
+# ... or from a boot.img you already extracted
+./target_generator/make-target.sh SM-S908U1 S908U1UEU8GYJ1 --fw boot.img
+```
+
+What it does:
+
+1. Streams `boot.img.lz4` out of the firmware package (the package is
+   multi-GB; nothing but the boot image is written to disk), decompresses it
+   and unpacks the kernel with `magiskboot` — auto-downloaded from the Magisk
+   APK when it is not already installed.
+2. Extracts `kallsyms.txt` and the kernel config, then reads the kernel
+   version from the banner and the SoC family from the config
+   (`CONFIG_ARCH_QCOM` / `CONFIG_ARCH_EXYNOS`).
+3. Picks the sibling target to inherit the source overrides from by scoring
+   every existing target on kernel version, device series and SoC family, and
+   prints the ranking. `--sibling` overrides the choice.
+4. Runs `generate_target.py` with the sibling's `target.h` as the template,
+   so the dynamic offsets come from the image and the static GKI struct
+   layouts are inherited from a build of the same kernel generation.
+5. Rewrites `BUILD_VARIANT_LABEL`, `BUILD_FINGERPRINT` and the header
+   provenance from the device itself (via `adb`) or from the firmware package.
+6. Installs `src/targets/<BUILD>/` with the sibling's overrides plus a
+   machine-readable `target_meta.json`, and compiles it with
+   `make PROJECT=<BUILD>`.
+
+Useful flags: `--no-install`, `--no-build`, `--push`, `--run`, `--exp32` /
+`--exp64`, `--out <dir>`, `--force`, `--dry-run`.
+
+On this repository the script reproduces the `S908U1UEU8GYJ1` target
+**byte for byte**: every `#define` it generates matches the hand-verified
+profile, and the resulting binaries hash identically to the ones that
+completed the exploit chain on real hardware (`a7cb10b7…`, `97c735fc…`,
+`e437094a…`).
+
 ## Build
 
 Set `ANDROID_NDK_HOME` to Android NDK r27+ or a compatible toolchain, then run with your chosen `PROJECT=<TARGET>` from the table above:
