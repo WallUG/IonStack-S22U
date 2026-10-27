@@ -18,3 +18,10 @@ target_generator/config.txt
 
 # Test targets / QEMU test environments
 tests-targets/
+
+# Local firmware dumps / extracted images (large, per-device, not source)
+*.zip
+*.zip:Zone.Identifier
+fw_extract/
+fw_meta/
+
